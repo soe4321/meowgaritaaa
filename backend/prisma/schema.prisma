@@ -1,0 +1,221 @@
+// Prisma Schema for CampusOD - Student On-Duty Management System
+// Database: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  STUDENT
+  FACULTY
+  ADMIN
+}
+
+enum ODReason {
+  PRE_WORK
+  EVENT
+  POST_WORK
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  PENDING_FACULTY
+  PENDING_ADMIN
+  APPROVED
+  REJECTED
+  RETURNED_FOR_CORRECTION
+  CANCELLED
+}
+
+enum ReviewDecision {
+  FORWARDED_TO_ADMIN
+  APPROVED
+  REJECTED
+  RETURNED_FOR_CORRECTION
+}
+
+model User {
+  id           String          @id @default(uuid())
+  email        String          @unique
+  passwordHash String
+  role         UserRole        @default(STUDENT)
+  fullName     String
+  phone        String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  studentProfile StudentProfile?
+  facultyProfile FacultyProfile?
+  reviewsMade    ApprovalReview[]
+  notifications  Notification[]
+
+  @@map("users")
+}
+
+model Department {
+  id        String           @id @default(uuid())
+  code      String           @unique
+  name      String
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  students  StudentProfile[]
+  faculty   FacultyProfile[]
+
+  @@map("departments")
+}
+
+model StudentProfile {
+  id             String          @id @default(uuid())
+  userId         String          @unique
+  registerNumber String          @unique
+  departmentId   String
+  year           Int             // 1, 2, 3, 4
+  section        String          // 'A', 'B', 'C'
+  rollNumber     String?
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department     Department      @relation(fields: [departmentId], references: [id])
+  applications   ODApplication[]
+
+  @@map("student_profiles")
+}
+
+model FacultyProfile {
+  id           String     @id @default(uuid())
+  userId       String     @unique
+  employeeId   String     @unique
+  departmentId String
+  designation  String     // e.g. "Assistant Professor", "HOD", "Dean"
+
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  @@map("faculty_profiles")
+}
+
+model Event {
+  id               String          @id @default(uuid())
+  title            String
+  description      String
+  organizer        String
+  venue            String
+  startDate        DateTime
+  endDate          DateTime
+  deadline         DateTime
+  requiresDocument Boolean         @default(true)
+  isActive         Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  applications     ODApplication[]
+
+  @@map("events")
+}
+
+model ODApplication {
+  id                  String             @id @default(uuid())
+  applicationNumber   String             @unique // e.g. "OD-2026-0001"
+  studentProfileId    String
+  eventId             String?
+  customEventTitle    String?
+  customVenue         String?
+  customOrganizer     String?
+  reason              ODReason
+  status              ApplicationStatus  @default(SUBMITTED)
+  verificationCode    String             @unique // Cryptographic / unique code for QR validation
+  declarationAccepted Boolean            @default(true)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  studentProfile      StudentProfile     @relation(fields: [studentProfileId], references: [id], onDelete: Cascade)
+  event               Event?             @relation(fields: [eventId], references: [id])
+  dates               ODApplicationDate[]
+  documents           UploadedDocument[]
+  reviews             ApprovalReview[]
+
+  @@map("od_applications")
+}
+
+model ODApplicationDate {
+  id            String                @id @default(uuid())
+  applicationId String
+  date          DateTime
+  isFullDay     Boolean               @default(false)
+
+  application   ODApplication         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  periods       ODApplicationPeriod[]
+
+  @@map("od_application_dates")
+}
+
+model ODApplicationPeriod {
+  id                String            @id @default(uuid())
+  applicationDateId String
+  periodNumber      Int               // 1 to 8
+
+  applicationDate   ODApplicationDate @relation(fields: [applicationDateId], references: [id], onDelete: Cascade)
+
+  @@map("od_application_periods")
+}
+
+model UploadedDocument {
+  id            String        @id @default(uuid())
+  applicationId String
+  fileName      String        // Stored filename on disk
+  originalName  String        // Uploaded original filename
+  mimeType      String
+  fileSize      Int
+  filePath      String
+  createdAt     DateTime      @default(now())
+
+  application   ODApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("uploaded_documents")
+}
+
+model ApprovalReview {
+  id            String         @id @default(uuid())
+  applicationId String
+  reviewerId    String
+  role          UserRole
+  decision      ReviewDecision
+  remarks       String?
+  createdAt     DateTime       @default(now())
+
+  application   ODApplication  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviewer      User           @relation(fields: [reviewerId], references: [id])
+
+  @@map("approval_reviews")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  type      String   // 'SUBMITTED', 'FACULTY_REVIEWED', 'ADMIN_APPROVED', 'REJECTED', 'CORRECTION', etc.
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model ODPolicy {
+  id                       String   @id @default(uuid())
+  maxDaysPerSemester       Int      @default(15)
+  deadlineHoursBeforeEvent Int      @default(24)
+  requireAttachment        Boolean  @default(true)
+  updatedAt                DateTime @updatedAt
+
+  @@map("od_policies")
+}
